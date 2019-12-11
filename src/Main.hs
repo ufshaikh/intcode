@@ -18,7 +18,8 @@ type IWord = Int --IntcodeWord
 type Input = [Int]
 type Output = [Int]
 
-data Computer = Computer Program InsPtr RelativeBase Input Output deriving Show
+data Computer = Computer Program InsPtr RelativeBase Input Output State deriving Show
+data State = Run | Halt | Input deriving (Show, Eq)
 data ParamMode = Position | Immediate deriving (Show, Eq)
 data Opcode = Opcode Int deriving (Show, Ord, Eq)
 
@@ -66,44 +67,44 @@ get_num_of_params opc
 
 -- handles addition and multiplication
 bin_func :: Computer -> [Int] -> Int -> (Int -> Int -> Int) -> Computer
-bin_func (Computer prog insptr _relbase _input _output) arg_list write_pos func
-  = (Computer (M.insert write_pos new_val prog) insptr _relbase _input _output)
+bin_func (Computer prog insptr _relbase _input _output _state ) arg_list
+  write_pos func =
+  (Computer (M.insert write_pos new_val prog) insptr _relbase _input _output _state)
   where new_val = func (arg_list !! 0) (arg_list !! 1)
 
 -- assumes input isn't empty
 get_inp :: Computer -> Int -> Computer
-get_inp (Computer prog insptr _relbase input _output) write_pos =
-  (Computer (new_prog) insptr _relbase (tail input) _output)
+get_inp (Computer prog insptr _relbase input _output _state) write_pos =
+  (Computer (new_prog) insptr _relbase (tail input) _output _state)
   where new_prog = M.insert (prog M.! (insptr+1)) (head input) prog
 
 out:: Computer -> [Int] -> Computer
-out (Computer _prog _insptr _relbase _input output) arg_list
-  = (Computer _prog _insptr _relbase _input (head arg_list:output))
+out (Computer _prog _insptr _relbase _input output _state) arg_list
+  = (Computer _prog _insptr _relbase _input (head arg_list:output) _state)
 
 jmp :: Computer -> [Int] -> (Int -> Bool) -> Computer
-jmp (Computer _prog insptr _relbase _input _output) arg_list comp_func =
-  (Computer _prog new_insptr _relbase _input _output)
+jmp (Computer _prog insptr _relbase _input _output _state) arg_list comp_func =
+  (Computer _prog new_insptr _relbase _input _output _state)
   where new_insptr = if comp_func (head arg_list)
                        then (arg_list !! 1)
                        else insptr + 3
 
 cmp :: Computer -> [Int] -> Int -> (Int -> Int -> Bool) -> Computer
-cmp (Computer prog _insptr _relbase _input _output) arg_list write_pos comp_func
-  = (Computer new_prog _insptr _relbase _input _output)
+cmp (Computer prog _insptr _relbase _input _output _state) arg_list write_pos
+  comp_func =
+  (Computer new_prog _insptr _relbase _input _output _state)
   where result = if comp_func (head arg_list) (arg_list !! 1) then 1 else 0
         new_prog = M.insert write_pos result prog
 
--- represent halt state by moving instruction pointer to position -1
--- pretty hacky---maybe add a new type, computer state?
 halt :: Computer -> Computer
-halt (Computer _prog insptr _relbase _input _output) =
-  (Computer _prog (-1) _relbase _input _output)
+halt (Computer _prog insptr _relbase _input _output state) =
+  (Computer _prog insptr _relbase _input _output Halt)
 
 -- move instruction ptr to next instruction
 -- jumps and halt handle their own updating
 upd_iptr :: Opcode -> Computer -> Computer
-upd_iptr opc (Computer _prog insptr _relbase _input _output) =
-  (Computer _prog new_insptr _relbase _input _output)
+upd_iptr opc (Computer _prog insptr _relbase _input _output _state) =
+  (Computer _prog new_insptr _relbase _input _output _state)
   where op = get_opcode_as_int opc
         offset = get_num_of_params opc + 1
         new_insptr = if op == 5 || op == 6 || op == 99
@@ -111,7 +112,7 @@ upd_iptr opc (Computer _prog insptr _relbase _input _output) =
                        else insptr + offset
 
 execute :: Computer -> Instruction -> Opcode -> Computer
-execute (Computer prog insptr relbase input output) instruction opc
+execute (Computer prog insptr relbase input output state) instruction opc
   | op == 1 = bin_func comp arg_list write_pos (+)
   | op == 2 = bin_func comp arg_list write_pos (*)
   | op == 3 = get_inp comp write_pos
@@ -121,7 +122,7 @@ execute (Computer prog insptr relbase input output) instruction opc
   | op == 7 = cmp comp arg_list write_pos (<)
   | op == 8 = cmp comp arg_list write_pos (==)
   | op == 99 = halt comp
-  where comp = (Computer prog insptr relbase input output)
+  where comp = (Computer prog insptr relbase input output state)
         op = get_opcode_as_int opc
         -- NB: this gets values to use (from either mode), not to write to
         arg_list = map get_arg [0..(get_num_of_params opc - 1)]
@@ -135,18 +136,18 @@ execute (Computer prog insptr relbase input output) instruction opc
         write_pos = prog M.! (insptr + (get_num_of_params opc))
 
 tick :: Computer -> Computer
-tick (Computer prog insptr relbase input output) =
+tick (Computer prog insptr relbase input output state) =
   upd_iptr opc $ execute comp instruction opc
-  where comp = (Computer prog insptr relbase input output)
+  where comp = (Computer prog insptr relbase input output state)
         instruction = prog M.! insptr
         opc = Opcode $ instruction `rem` 100
 
 run :: Computer -> Computer
-run (Computer prog insptr relbase input output)
+run (Computer prog insptr relbase input output state)
   -- | trace ("pos: " ++ show insptr ++ "\n" ++ "instruction: " ++ show (prog M.! insptr) ++ "\n" ++ show prog) False = undefined
-  | insptr == (-1) = (Computer prog (-1) relbase input output)
+  | state == Halt = (Computer prog insptr relbase input output state)
   | otherwise = run . tick $ comp
-  where comp = (Computer prog insptr relbase input output)
+  where comp = (Computer prog insptr relbase input output state)
 ------------------------------------------------------------
 
 main :: IO ()
@@ -156,7 +157,7 @@ main = do
   let program = M.fromAscList . zip [0..] . prepare $ inpf
   let input = map read ns
   let output = [] -- NB: we push to the front!
-  let computer = Computer program 0 0 input output
+  let computer = Computer program 0 0 input output Run
   -- putStrLn $ show $ run computer
-  (Computer prog insptr relbase input output) <- return $ run computer
+  (Computer prog insptr relbase input output state) <- return $ run computer
   mapM_ print output
