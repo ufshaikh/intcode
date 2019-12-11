@@ -11,13 +11,12 @@ def part1():
     for i in phase_settings:
         inp = 0
         for j in i:
-            com_str = "stack exec intcode-exe input7.txt " + str(j) + " " + str(inp)
+            com_str = "stack exec intcode sample_inputs/input7.txt " + str(j) + " " + str(inp)
             inp = s.Popen(com_str, shell=True, stdout=s.PIPE).stdout.read()
             inp = int(inp.strip().decode())
-        print(i, inp, toret)
         toret = max(toret, inp)
 
-    print(toret)
+    print(toret == 17440)
 
 def part2():
     print("testing")
