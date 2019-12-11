@@ -7,6 +7,8 @@ import qualified Control.Monad as CM
 
 import Data.List
 import Data.List.Split
+import Data.Maybe
+import Text.Read (readMaybe)
 import qualified Data.IntMap as M
 
 type InsPtr = Int
@@ -19,7 +21,7 @@ type Input = [Int]
 type Output = [Int]
 
 data Computer = Computer Program InsPtr RelativeBase Input Output State deriving Show
-data State = Run | Halt | Input deriving (Show, Eq)
+data State = Run | Halt | GetIn deriving (Show, Eq)
 data ParamMode = Position | Immediate deriving (Show, Eq)
 data Opcode = Opcode Int deriving (Show, Ord, Eq)
 
@@ -61,6 +63,9 @@ get_num_of_params opc
   | op == 99                                     = 0
   where op = get_opcode_as_int opc
 
+get_state :: Computer -> State
+get_state (Computer prog insptr relbase input output state) = state
+
 {- OPERATION FUNCTIONS -}
 --------------------------------------------------------------------------------
 -- these are the functions that actually update the comp
@@ -72,13 +77,15 @@ bin_func (Computer prog insptr _relbase _input _output _state ) arg_list
   (Computer (M.insert write_pos new_val prog) insptr _relbase _input _output _state)
   where new_val = func (arg_list !! 0) (arg_list !! 1)
 
--- assumes input isn't empty
 get_inp :: Computer -> Int -> Computer
-get_inp (Computer prog insptr _relbase input _output _state) write_pos =
-  (Computer (new_prog) insptr _relbase (tail input) _output _state)
-  where new_prog = M.insert (prog M.! (insptr+1)) (head input) prog
+-- if input list is empty, block and get more from stdin
+get_inp (Computer prog insptr _relbase [] _output _state) write_pos =
+  (Computer (prog) insptr _relbase [] _output GetIn)
+get_inp (Computer prog insptr _relbase (inp:inps) _output _state) write_pos =
+  (Computer (new_prog) (insptr + 2) _relbase inps _output _state)
+  where new_prog = M.insert (prog M.! (insptr+1)) inp prog
 
-out:: Computer -> [Int] -> Computer
+out :: Computer -> [Int] -> Computer
 out (Computer _prog _insptr _relbase _input output _state) arg_list
   = (Computer _prog _insptr _relbase _input (head arg_list:output) _state)
 
@@ -101,13 +108,13 @@ halt (Computer _prog insptr _relbase _input _output state) =
   (Computer _prog insptr _relbase _input _output Halt)
 
 -- move instruction ptr to next instruction
--- jumps and halt handle their own updating
+-- jumps and get_inp handle their own updating, halt doesn't move the ptr
 upd_iptr :: Opcode -> Computer -> Computer
 upd_iptr opc (Computer _prog insptr _relbase _input _output _state) =
   (Computer _prog new_insptr _relbase _input _output _state)
   where op = get_opcode_as_int opc
         offset = get_num_of_params opc + 1
-        new_insptr = if op == 5 || op == 6 || op == 99
+        new_insptr = if op == 3 || op == 5 || op == 6 || op == 99
                        then insptr
                        else insptr + offset
 
@@ -142,13 +149,25 @@ tick (Computer prog insptr relbase input output state) =
         instruction = prog M.! insptr
         opc = Opcode $ instruction `rem` 100
 
-run :: Computer -> Computer
-run (Computer prog insptr relbase input output state)
-  -- | trace ("pos: " ++ show insptr ++ "\n" ++ "instruction: " ++ show (prog M.! insptr) ++ "\n" ++ show prog) False = undefined
-  | state == Halt = (Computer prog insptr relbase input output state)
-  | otherwise = run . tick $ comp
-  where comp = (Computer prog insptr relbase input output state)
-------------------------------------------------------------
+---------------------------------------------------------------
+
+get_new_input :: IO Int
+get_new_input = do
+  toret <- getLine
+  case (readMaybe toret::Maybe Int) of
+    Just x -> do
+      return x
+    Nothing -> do
+      x <- get_new_input
+      return x
+
+run :: Computer -> IO Output
+run (Computer prog insptr relbase input output Halt) = do
+  return output
+run (Computer prog insptr relbase input output GetIn) = do
+  new_int <- get_new_input
+  run (Computer prog insptr relbase (new_int:input) output Run)
+run comp = run . tick $ comp
 
 main :: IO ()
 main = do
@@ -158,6 +177,6 @@ main = do
   let input = map read ns
   let output = [] -- NB: we push to the front!
   let computer = Computer program 0 0 input output Run
-  -- putStrLn $ show $ run computer
-  (Computer prog insptr relbase input output state) <- return $ run computer
-  mapM_ print output
+
+  resulting_output <- run computer
+  mapM_ print $ reverse resulting_output
