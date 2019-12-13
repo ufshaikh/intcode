@@ -18,10 +18,9 @@ type Program = M.IntMap IWord
 type RelativeBase = Int
 type IWord = Int --IntcodeWord
 type Input = [Int]
-type Output = [Int]
 
-data Computer = Computer Program InsPtr RelativeBase Input Output State deriving Show
-data State = Run | Halt | GetIn deriving (Show, Eq)
+data Computer = Computer Program InsPtr RelativeBase State deriving Show
+data State = Run | Halt | GetIn | PutOut deriving (Show, Eq)
 data ParamMode = Position | Immediate deriving (Show, Eq)
 data Opcode = Opcode Int deriving (Show, Ord, Eq)
 
@@ -63,89 +62,82 @@ get_num_of_params opc
   | op == 99                                     = 0
   where op = get_opcode_as_int opc
 
-get_state :: Computer -> State
-get_state (Computer prog insptr relbase input output state) = state
-
 {- OPERATION FUNCTIONS -}
 --------------------------------------------------------------------------------
 -- these are the functions that actually update the comp
 
 -- handles addition and multiplication
 bin_func :: Computer -> [Int] -> Int -> (Int -> Int -> Int) -> Computer
-bin_func (Computer prog insptr _relbase _input _output _state ) arg_list
+bin_func (Computer prog insptr _relbase _state ) arg_list
   write_pos func =
-  (Computer (M.insert write_pos new_val prog) insptr _relbase _input _output _state)
+  (Computer (M.insert write_pos new_val prog) insptr _relbase _state)
   where new_val = func (arg_list !! 0) (arg_list !! 1)
 
-get_inp :: Computer -> Int -> Computer
--- if input list is empty, block and get more from stdin
-get_inp (Computer prog insptr _relbase [] _output _state) write_pos =
-  (Computer (prog) insptr _relbase [] _output GetIn)
-get_inp (Computer prog insptr _relbase (inp:inps) _output _state) write_pos =
-  (Computer (new_prog) (insptr + 2) _relbase inps _output _state)
-  where new_prog = M.insert (prog M.! (insptr+1)) inp prog
-
-out :: Computer -> [Int] -> Computer
-out (Computer _prog _insptr _relbase _input output _state) arg_list
-  = (Computer _prog _insptr _relbase _input (head arg_list:output) _state)
-
 jmp :: Computer -> [Int] -> (Int -> Bool) -> Computer
-jmp (Computer _prog insptr _relbase _input _output _state) arg_list comp_func =
-  (Computer _prog new_insptr _relbase _input _output _state)
+jmp (Computer _prog insptr _relbase _state) arg_list comp_func =
+  (Computer _prog new_insptr _relbase _state)
   where new_insptr = if comp_func (head arg_list)
                        then (arg_list !! 1)
                        else insptr + 3
 
 cmp :: Computer -> [Int] -> Int -> (Int -> Int -> Bool) -> Computer
-cmp (Computer prog _insptr _relbase _input _output _state) arg_list write_pos
+cmp (Computer prog _insptr _relbase _state) arg_list write_pos
   comp_func =
-  (Computer new_prog _insptr _relbase _input _output _state)
+  (Computer new_prog _insptr _relbase _state)
   where result = if comp_func (head arg_list) (arg_list !! 1) then 1 else 0
         new_prog = M.insert write_pos result prog
 
-halt :: Computer -> Computer
-halt (Computer _prog insptr _relbase _input _output state) =
-  (Computer _prog insptr _relbase _input _output Halt)
+change_state :: Computer -> State -> Computer
+change_state (Computer _prog insptr _relbase orig_state) new_state =
+  (Computer _prog insptr _relbase new_state)
 
 -- move instruction ptr to next instruction
--- jumps and get_inp handle their own updating, halt doesn't move the ptr
+-- jumps and changes of state (getting input, printing output, and halting)
+-- handle their own updating (halt doesn't move the ptr)
 upd_iptr :: Opcode -> Computer -> Computer
-upd_iptr opc (Computer _prog insptr _relbase _input _output _state) =
-  (Computer _prog new_insptr _relbase _input _output _state)
+upd_iptr opc (Computer _prog insptr _relbase _state) =
+  (Computer _prog new_insptr _relbase _state)
   where op = get_opcode_as_int opc
         offset = get_num_of_params opc + 1
-        new_insptr = if op == 3 || op == 5 || op == 6 || op == 99
+        new_insptr = if op == 3 || op == 4 || op == 5 || op == 6 || op == 99
                        then insptr
                        else insptr + offset
 
+-- NB: this gets values to use (from either mode), not to write to
+get_arg_list :: Program -> InsPtr -> Instruction -> [Int]
+get_arg_list prog insptr instruction =
+  map get_arg [0..(get_num_of_params opc - 1)]
+-- findWithDefault: unlikely to matter, but just in case something
+-- points beyond the map. (in that case we can be sure the val is not
+-- actually used)
+  where opc = Opcode $ instruction `rem` 100
+        get_arg i = if (get_param_mode instruction i) == Immediate
+                      then M.findWithDefault 0 (insptr + i + 1) prog
+                      else M.findWithDefault 0
+                           (M.findWithDefault 0 (insptr + i + 1) prog) prog
+
 execute :: Computer -> Instruction -> Opcode -> Computer
-execute (Computer prog insptr relbase input output state) instruction opc
+execute (Computer prog insptr relbase state) instruction opc
   | op == 1 = bin_func comp arg_list write_pos (+)
   | op == 2 = bin_func comp arg_list write_pos (*)
-  | op == 3 = get_inp comp write_pos
-  | op == 4 = out comp arg_list
+  | op == 3 = change_state comp GetIn
+  | op == 4 = change_state comp PutOut
   | op == 5 = jmp comp arg_list (/= 0)
   | op == 6 = jmp comp arg_list (== 0)
   | op == 7 = cmp comp arg_list write_pos (<)
   | op == 8 = cmp comp arg_list write_pos (==)
-  | op == 99 = halt comp
-  where comp = (Computer prog insptr relbase input output state)
+  | op == 99 = change_state comp Halt
+  where comp = (Computer prog insptr relbase state)
         op = get_opcode_as_int opc
         -- NB: this gets values to use (from either mode), not to write to
-        arg_list = map get_arg [0..(get_num_of_params opc - 1)]
-        -- findWithDefault: unlikely to matter, but just in case something
-        -- points beyond the map. (in that case we can be sure the val is not
-        -- actually used)
-          where get_arg i = if (get_param_mode instruction i) == Immediate
-                              then M.findWithDefault 0 (insptr + i + 1) prog
-                              else M.findWithDefault 0 (M.findWithDefault 0 (insptr + i + 1) prog) prog
+        arg_list = get_arg_list prog insptr instruction
         -- this gets the index to write to
         write_pos = prog M.! (insptr + (get_num_of_params opc))
 
 tick :: Computer -> Computer
-tick (Computer prog insptr relbase input output state) =
+tick (Computer prog insptr relbase state) =
   upd_iptr opc $ execute comp instruction opc
-  where comp = (Computer prog insptr relbase input output state)
+  where comp = (Computer prog insptr relbase state)
         instruction = prog M.! insptr
         opc = Opcode $ instruction `rem` 100
 
@@ -153,6 +145,7 @@ tick (Computer prog insptr relbase input output state) =
 
 get_new_input :: IO Int
 get_new_input = do
+  putStrLn "Waiting for input... "
   toret <- getLine
   case (readMaybe toret::Maybe Int) of
     Just x -> do
@@ -161,13 +154,31 @@ get_new_input = do
       x <- get_new_input
       return x
 
-run :: Computer -> IO Output
-run (Computer prog insptr relbase input output Halt) = do
-  return output
-run (Computer prog insptr relbase input output GetIn) = do
+act_on_inp :: Computer -> Int -> Computer
+act_on_inp (Computer prog insptr relbase GetIn) inp =
+  (Computer new_prog (insptr + (get_num_of_params (Opcode 3)) + 1) relbase Run)
+  where new_prog = M.insert (prog M.! (insptr+1)) inp prog
+
+print_out :: Program -> InsPtr -> IO ()
+print_out prog insptr =
+  do
+    let instruction = prog M.! insptr
+    print . head $ get_arg_list prog insptr instruction
+
+run :: Input -> Computer -> IO Computer
+run input (Computer prog insptr relbase Halt) = do
+  return (Computer prog insptr relbase Halt)
+run [] (Computer prog insptr relbase GetIn) = do
   new_int <- get_new_input
-  run (Computer prog insptr relbase (new_int:input) output Run)
-run comp = run . tick $ comp
+  run (new_int:[]) (Computer prog insptr relbase GetIn)
+run (inp:inps) (Computer prog insptr relbase GetIn) = do
+  run inps $ tick $ act_on_inp (Computer prog insptr relbase GetIn) inp
+  where new_prog = M.insert (prog M.! (insptr+1)) inp prog
+run input (Computer prog insptr relbase PutOut) = do
+  print_out prog insptr
+  run input $ tick (Computer prog (insptr + (get_num_of_params (Opcode 4)) + 1)
+                             relbase Run)
+run input comp = run input $ tick comp
 
 main :: IO ()
 main = do
@@ -175,8 +186,7 @@ main = do
   inpf <- readFile $ f
   let program = M.fromAscList . zip [0..] . prepare $ inpf
   let input = map read ns
-  let output = [] -- NB: we push to the front!
-  let computer = Computer program 0 0 input output Run
-
-  resulting_output <- run computer
-  mapM_ print $ reverse resulting_output
+  let output = []
+  let computer = Computer program 0 0 Run
+  run input computer
+  print "Done"
