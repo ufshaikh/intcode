@@ -182,6 +182,7 @@ run input comp = run input $ tick comp
 
 main :: IO ()
 main = do
+  hSetBuffering stdout LineBuffering
   (f:ns) <- getArgs
   inpf <- readFile $ f
   let program = M.fromAscList . zip [0..] . prepare $ inpf
