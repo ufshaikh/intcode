@@ -154,7 +154,7 @@ execute (Computer prog insptr relbase state) instruction opc
   | op == 99 = change_state comp Halt
   where comp = (Computer prog insptr relbase state)
         op = get_opcode_as_int opc
-        --valuse to compute with
+        --values to compute with
         arg_list = get_arg_list prog insptr relbase instruction
         --index to write to
         write_pos = get_write_pos instruction opc insptr relbase prog
@@ -211,7 +211,7 @@ run' (inp:inps) (Computer prog insptr relbase GetIn) = do
   where new_prog = M.insert (prog M.! (insptr+1)) inp prog
 run' input (Computer prog insptr relbase PutOut) = do
   print_out prog insptr relbase
-  run input $ tick (Computer prog (insptr + (get_num_of_params (Opcode 4)) + 1)
+  run input (Computer prog (insptr + (get_num_of_params (Opcode 4)) + 1)
                              relbase Run)
 run' input comp = run input $ tick comp
 
