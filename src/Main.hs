@@ -219,10 +219,6 @@ main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   (f:ns) <- getArgs
-  inpf <- readFile $ f
-  let program = M.fromAscList . zip [0..] . prepare $ inpf
-  let input = map read ns
-  let output = []
-  let computer = Computer program 0 0 Run
-  run input computer
+  program <- fmap (M.fromAscList . zip [0..] . prepare) $ readFile f
+  run (map read ns) (Computer program 0 0 Run)
   print "Done"
