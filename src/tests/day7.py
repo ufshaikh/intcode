@@ -23,7 +23,6 @@ def run_amplifier(amp_num, phase, pipeline):
 
     while not out == '':
         out = p.stdout.readline().strip()
-        out = str(out)
         if out == "Waiting for input...":
             inp = pipeline.queues[amp_num].get()
             inp = str(inp) + "\n"

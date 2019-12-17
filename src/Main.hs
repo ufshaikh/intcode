@@ -221,4 +221,4 @@ main = do
   (f:ns) <- getArgs
   program <- fmap (M.fromAscList . zip [0..] . prepare) $ readFile f
   run (map read ns) (Computer program 0 0 Run)
-  print "Done"
+  putStrLn "Done"
