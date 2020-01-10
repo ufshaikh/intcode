@@ -81,7 +81,12 @@ instruction to the number stored at the address two after the instruction, and
 to store the result at the address three after the instruction.
 
 This implementation uses Haskell Int as its word, and so on a 64-bit
-architecture can handle large numbers. The machine is invoked at the
-command-line and I/O is handled through stdin and stdout; the machine will block
-when waiting for input. In general the implementation assumes a valid intcode
-program and may not react gracefully if it is not given one.
+architecture can handle large numbers. If you want to use large enough numbers
+to pass the tests with a 32-bit architecture, you'll have to adjust IWord to be
+something larger than an Int and use a Map instead of an IntMap as the Program
+type (I did not test, but this should incur a performance hit).
+
+The machine is invoked at the command-line and I/O is handled through stdin and
+stdout; the machine will block when waiting for input. In general the
+implementation assumes a valid intcode program and may not react gracefully if
+it is not given one.
