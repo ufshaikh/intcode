@@ -11,22 +11,22 @@ import Data.Maybe
 import Text.Read (readMaybe)
 import qualified Data.IntMap as M
 
-type InsPtr = Int
-type Instruction = Int
-type Param = Int
+type Ptr = IWord
+type Instruction = IWord
+type Param = IWord
 type Program = M.IntMap IWord
-type RelativeBase = Int
-type IWord = Int --IntcodeWord
-type Input = [Int]
+type RelativeBase = Ptr
+type IWord = Int -- i.e., IntcodeWord
+type Input = [IWord]
 
-data Computer = Computer Program InsPtr RelativeBase State deriving Show
+data Computer = Computer Program Ptr RelativeBase State deriving Show
 data State = Run | Halt | GetIn | PutOut deriving (Show, Eq)
 data ParamMode = Position | Immediate | Relative deriving (Eq, Ord, Show)
 data Opcode = Opcode Int deriving (Show, Ord, Eq)
 
 {- UTILITY FUNCTIONS -}
 --------------------------------------------------------------------------------
-prepare :: String -> [Int]
+prepare :: String -> Input
 prepare program_str = map read $ splitOn "," program_str
 
 safe_subscript :: [a] -> Int -> Maybe a
@@ -69,27 +69,27 @@ get_num_of_params opc
 -- these are the functions that actually update the comp
 
 -- handles addition and multiplication
-bin_func :: Computer -> [Int] -> Int -> (Int -> Int -> Int) -> Computer
+bin_func :: Computer -> [IWord] -> Ptr -> (IWord -> IWord -> IWord) -> Computer
 bin_func (Computer prog insptr _relbase _state ) arg_list
   write_pos func =
   (Computer (M.insert write_pos new_val prog) insptr _relbase _state)
   where new_val = func (arg_list !! 0) (arg_list !! 1)
 
-jmp :: Computer -> [Int] -> (Int -> Bool) -> Computer
+jmp :: Computer -> [IWord] -> (IWord -> Bool) -> Computer
 jmp (Computer _prog insptr _relbase _state) arg_list comp_func =
   (Computer _prog new_insptr _relbase _state)
   where new_insptr = if comp_func (head arg_list)
                        then (arg_list !! 1)
                        else insptr + 3
 
-cmp :: Computer -> [Int] -> Int -> (Int -> Int -> Bool) -> Computer
+cmp :: Computer -> [IWord] -> Ptr -> (IWord -> IWord -> Bool) -> Computer
 cmp (Computer prog _insptr _relbase _state) arg_list write_pos
   comp_func =
   (Computer new_prog _insptr _relbase _state)
   where result = if comp_func (head arg_list) (arg_list !! 1) then 1 else 0
         new_prog = M.insert write_pos result prog
 
-mod_relbase :: Computer -> [Int] -> Computer
+mod_relbase :: Computer -> [IWord] -> Computer
 mod_relbase (Computer _prog _insptr relbase state) arg_list =
   (Computer _prog _insptr (relbase + head arg_list) state)
 
@@ -109,7 +109,7 @@ upd_iptr opc (Computer _prog insptr _relbase _state) =
                        then insptr
                        else insptr + offset
 
-get_arg :: Instruction -> InsPtr -> RelativeBase -> Program -> Int -> IWord
+get_arg :: Instruction -> Ptr -> RelativeBase -> Program -> Int -> IWord
 get_arg instruction insptr relbase prog i
   | mode == Immediate = M.findWithDefault 0 (insptr + i + 1) prog
   | mode == Position = M.findWithDefault 0
@@ -122,7 +122,7 @@ get_arg instruction insptr relbase prog i
 -- NB: this gets /values/ to use (from either mode), not positions
 -- (and is not to be used for writing to)
 
-get_arg_list :: Program -> InsPtr -> RelativeBase -> Instruction -> [IWord]
+get_arg_list :: Program -> Ptr -> RelativeBase -> Instruction -> [IWord]
 get_arg_list prog insptr relbase instruction =
   map (get_arg instruction insptr relbase prog) [0..(get_num_of_params opc - 1)]
   where opc = Opcode $ instruction `rem` 100
@@ -131,7 +131,7 @@ get_arg_list prog insptr relbase instruction =
 -- memory
 -- This assumes that it is being called for a sensible instruction,
 -- i.e., one that writes to the position in its last parameter
-get_write_pos :: Instruction -> Opcode -> InsPtr -> RelativeBase -> Program -> Int
+get_write_pos :: Instruction -> Opcode -> Ptr -> RelativeBase -> Program -> Ptr
 get_write_pos instruction opc insptr relbase prog
   | mode == Immediate = error "Trying to write to in immediate mode"
   | mode == Position = prog M.! (insptr + num_of_params)
@@ -168,7 +168,7 @@ tick (Computer prog insptr relbase state) =
 
 ---------------------------------------------------------------
 
-get_new_input :: IO Int
+get_new_input :: IO IWord
 get_new_input = do
   putStrLn "Waiting for input... "
   toret <- getLine
@@ -180,7 +180,7 @@ get_new_input = do
       return x
 
 -- TODO :: deduplicate here
-act_on_inp :: Computer -> Int -> Computer
+act_on_inp :: Computer -> IWord -> Computer
 act_on_inp (Computer prog insptr relbase GetIn) inp =
   (Computer new_prog (insptr + (get_num_of_params (Opcode 3)) + 1) relbase Run)
   where instruction = prog M.! insptr
@@ -188,7 +188,7 @@ act_on_inp (Computer prog insptr relbase GetIn) inp =
         write_pos = get_write_pos instruction opc insptr relbase prog
         new_prog = M.insert write_pos inp prog
 
-print_out :: Program -> InsPtr -> RelativeBase -> IO ()
+print_out :: Program -> Ptr -> RelativeBase -> IO ()
 print_out prog insptr relbase =
   do
     let instruction = prog M.! insptr
