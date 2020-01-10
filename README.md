@@ -3,8 +3,9 @@
 This is an implementation of a machine which executes intcode, as specified by
 the [2019 Advent of Code](https://adventofcode.com/2019). The machine itself is
 written in (novice) Haskell. Several "tests" in Python are included; these are
-the advent puzzles that somehow used the machine, and use the machine as a
-subprocess.
+the advent puzzles that used the machine, and the scripts use the machine as a
+subprocess. Run them from the tests directory with the Python interpreter,
+i.e., with commands like "python day7.py".
 
 ## Specification
 
