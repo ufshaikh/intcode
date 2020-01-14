@@ -15,8 +15,8 @@ here is a description of the machine and the language.
 
 An intcode program consists in a comma-separated list of integers. These are
 allowed to take large values (unspecified, but at least 34463338^2). The list
-consists of instructions together with parameters, each of which is a list of
-integers whose length varies depending on the instruction.
+consists of instructions together with parameters; each instruction-parameter
+chunk is a list of integers whose length depends on the instruction.
 
 The machine runs over the numbers, executing an instruction given its
 parameters, then moving forward to the next instruction (unless the first
@@ -30,26 +30,27 @@ Given an instruction, the first number gives the instruction opcode and
 parameter modes. The last two digits of the instruction are the opcode; the
 following opcodes are available:
 
-1: Add the next two parameters and store the result in the third parameter.
+01: Add the next two parameters and store the result in the third parameter.
 
-2: Multiply the next two parameters and store the result in the third parameter.
+02: Multiply the next two parameters and store the result in the third
+parameter.
 
-3: Input a value and store it in the first parameter.
+03: Input a value and store it in the first parameter.
 
-4: Output the value in the first parameter.
+04: Output the value in the first parameter.
 
-5: Jump to the address in the second parameter if the first parameter is not
+05: Jump to the address in the second parameter if the first parameter is not
 zero.
 
-6: Jump to the address in the second parameter if the first parameter is zero.
+06: Jump to the address in the second parameter if the first parameter is zero.
 
-7: Compare the first parameter to the second parameter; if the first is less
+07: Compare the first parameter to the second parameter; if the first is less
 than the second, store a 1 in the third parameter, otherwise 0.
 
-8: Compare the first parameter to the second parameter; if the first is equal to
-the second, store a 1 in the third parameter, otherwise 0.
+08: Compare the first parameter to the second parameter; if the first is equal
+to the second, store a 1 in the third parameter, otherwise 0.
 
-9: Modify the relative base by adding the first parameter to it.
+09: Modify the relative base by adding the first parameter to it.
 
 99: Halt.
 
@@ -61,15 +62,18 @@ address, but the program may contain negative numbers.
 A parameter can be used in multiple ways:
 
 - Position mode (0): the parameter is to be interpreted as an address in the
-  machine's "memory."
+  machine's memory.
 
-- Immediate mode (1): the parameter is interpreted as a number.
+- Immediate mode (1): the parameter is interpreted directly as a number.
 
-- Relative mode (2): the parameter is interpreted as an offset from the current
-  relative base.
+- Relative mode (2): the parameter is interpreted as the address which is the
+  value of the parameter added to the current relative base.
 
-It's impossible to write to a parameter in immediate mode, and a valid program
-will never ask you to do so.
+When the parameter is read from in position or relative mode, the value at the
+address is used as an argument to the opcode function. When a value is stored in
+a parameter, memory at that address is replaced with that value. It's impossible
+to write to a parameter in immediate mode, and a valid program will never ask
+you to do so.
 
 The parameter modes are indicated in order by the digits of the instruction
 prior to the opcode, from least to most significant. Pad the instruction with
