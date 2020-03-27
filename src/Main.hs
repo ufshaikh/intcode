@@ -25,7 +25,6 @@ data ParamMode = Position | Immediate | Relative deriving (Eq, Ord, Show)
 data Opcode = Opcode Int deriving (Show, Ord, Eq)
 
 {- UTILITY FUNCTIONS -}
---------------------------------------------------------------------------------
 prepare :: String -> Input
 prepare program_str = map read $ splitOn "," program_str
 
@@ -38,7 +37,7 @@ safe_subscript l i
 -- no checking to ensure argument makes sense with opcode
 get_param_mode :: Instruction -> Int -> ParamMode
 get_param_mode inst i
-  | mode == Nothing = Position -- doubtless more modes incoming
+  | mode == Nothing = Position
   | mode == Just 0 = Position
   | mode == Just 1 = Immediate
   | mode == Just 2 = Relative
@@ -51,8 +50,8 @@ get_param_mode inst i
 
 get_opcode_as_int :: Opcode -> Int
 get_opcode_as_int (Opcode i)
-  | i >= 1 && i <=9 || i==99 = i
-  | otherwise = error $ "Tried to decode an invalid opcode " ++ (show i)
+  | i >= 1 && i <= 9 || i == 99 = i
+  | otherwise = error $ "Tried to decode invalid opcode " ++ (show i)
 
 get_num_of_params :: Opcode -> Int
 get_num_of_params opc
@@ -65,7 +64,6 @@ get_num_of_params opc
   where op = get_opcode_as_int opc
 
 {- OPERATION FUNCTIONS -}
---------------------------------------------------------------------------------
 -- these are the functions that actually update the comp
 
 -- handles addition and multiplication
@@ -166,8 +164,7 @@ tick (Computer prog insptr relbase state) =
         instruction = prog M.! insptr
         opc = Opcode $ instruction `rem` 100
 
----------------------------------------------------------------
-
+{- IO -}
 get_new_input :: IO IWord
 get_new_input = do
   putStrLn "Waiting for input... "
