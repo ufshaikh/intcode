@@ -19,7 +19,11 @@ type RelativeBase = Ptr
 type IWord = Int -- i.e., IntcodeWord
 type Input = [IWord]
 
-data Computer = Computer Program Ptr RelativeBase State deriving Show
+data Computer = Computer { c_prog :: Program
+                         , c_iptr :: Ptr
+                         , c_relbase :: RelativeBase
+                         , c_state :: State
+                         } deriving (Show)
 data State = Run | Halt | GetIn | PutOut deriving (Show, Eq)
 data ParamMode = Position | Immediate | Relative deriving (Eq, Ord, Show)
 data Opcode = Opcode Int deriving (Show, Ord, Eq)
@@ -68,44 +72,55 @@ get_num_of_params opc
 
 -- handles addition and multiplication
 bin_func :: Computer -> [IWord] -> Ptr -> (IWord -> IWord -> IWord) -> Computer
-bin_func (Computer prog insptr _relbase _state ) arg_list
-  write_pos func =
-  (Computer (M.insert write_pos new_val prog) insptr _relbase _state)
+bin_func c arg_list write_pos func =
+  Computer { c_prog=M.insert write_pos new_val (c_prog c)
+           , c_iptr=c_iptr c
+           , c_relbase=c_relbase c
+           , c_state=c_state c}
   where new_val = func (arg_list !! 0) (arg_list !! 1)
 
 jmp :: Computer -> [IWord] -> (IWord -> Bool) -> Computer
-jmp (Computer _prog insptr _relbase _state) arg_list comp_func =
-  (Computer _prog new_insptr _relbase _state)
+jmp c arg_list comp_func = Computer { c_prog=c_prog c
+                                    , c_iptr=new_insptr
+                                    , c_relbase=c_relbase c
+                                    , c_state=c_state c}
   where new_insptr = if comp_func (head arg_list)
                        then (arg_list !! 1)
-                       else insptr + 3
+                       else (c_iptr c) + 3
 
 cmp :: Computer -> [IWord] -> Ptr -> (IWord -> IWord -> Bool) -> Computer
-cmp (Computer prog _insptr _relbase _state) arg_list write_pos
-  comp_func =
-  (Computer new_prog _insptr _relbase _state)
+cmp c arg_list write_pos comp_func = Computer { c_prog=new_prog
+                                              , c_iptr=c_iptr c
+                                              , c_relbase=c_relbase c
+                                              , c_state=c_state c}
   where result = if comp_func (head arg_list) (arg_list !! 1) then 1 else 0
-        new_prog = M.insert write_pos result prog
+        new_prog = M.insert write_pos result $ c_prog c
 
 mod_relbase :: Computer -> [IWord] -> Computer
-mod_relbase (Computer _prog _insptr relbase state) arg_list =
-  (Computer _prog _insptr (relbase + head arg_list) state)
+mod_relbase c arg_list = Computer { c_prog=c_prog c
+                                  , c_iptr=c_iptr c
+                                  , c_relbase=c_relbase c + head arg_list
+                                  , c_state=c_state c}
 
 change_state :: Computer -> State -> Computer
-change_state (Computer _prog insptr _relbase orig_state) new_state =
-  (Computer _prog insptr _relbase new_state)
+change_state c new_state = Computer { c_prog=c_prog c
+                                    , c_iptr=c_iptr c
+                                    , c_relbase=c_relbase c
+                                    , c_state=new_state}
 
 -- move instruction ptr to next instruction
 -- jumps and changes of state (getting input, printing output, and halting)
 -- handle their own updating (halt doesn't move the ptr)
 upd_iptr :: Opcode -> Computer -> Computer
-upd_iptr opc (Computer _prog insptr _relbase _state) =
-  (Computer _prog new_insptr _relbase _state)
+upd_iptr opc c = Computer { c_prog=c_prog c
+                          , c_iptr=new_insptr
+                          , c_relbase=c_relbase c
+                          , c_state=c_state c}
   where op = get_opcode_as_int opc
         offset = get_num_of_params opc + 1
         new_insptr = if op == 3 || op == 4 || op == 5 || op == 6 || op == 99
-                       then insptr
-                       else insptr + offset
+                       then c_iptr c
+                       else c_iptr c + offset
 
 get_arg :: Instruction -> Ptr -> RelativeBase -> Program -> Int -> IWord
 get_arg instruction insptr relbase prog i
@@ -139,7 +154,7 @@ get_write_pos instruction opc insptr relbase prog
           mode = get_param_mode instruction $ num_of_params - 1
 
 execute :: Computer -> Instruction -> Opcode -> Computer
-execute (Computer prog insptr relbase state) instruction opc
+execute comp instruction opc
   | op == 1 = bin_func comp arg_list write_pos (+)
   | op == 2 = bin_func comp arg_list write_pos (*)
   | op == 3 = change_state comp GetIn
@@ -150,18 +165,17 @@ execute (Computer prog insptr relbase state) instruction opc
   | op == 8 = cmp comp arg_list write_pos (==)
   | op == 9 = mod_relbase comp arg_list
   | op == 99 = change_state comp Halt
-  where comp = (Computer prog insptr relbase state)
-        op = get_opcode_as_int opc
+  where op = get_opcode_as_int opc
         --values to compute with
-        arg_list = get_arg_list prog insptr relbase instruction
+        arg_list = get_arg_list (c_prog comp) (c_iptr comp) (c_relbase comp)
+                   instruction
         --index to write to
-        write_pos = get_write_pos instruction opc insptr relbase prog
+        write_pos = get_write_pos instruction opc
+                    (c_iptr comp) (c_relbase comp) (c_prog comp)
 
 tick :: Computer -> Computer
-tick (Computer prog insptr relbase state) =
-  upd_iptr opc $ execute comp instruction opc
-  where comp = (Computer prog insptr relbase state)
-        instruction = prog M.! insptr
+tick comp = upd_iptr opc $ execute comp instruction opc
+  where instruction = c_prog comp M.! c_iptr comp
         opc = Opcode $ instruction `rem` 100
 
 {- IO -}
@@ -178,12 +192,16 @@ get_new_input = do
 
 -- TODO :: deduplicate here
 act_on_inp :: Computer -> IWord -> Computer
-act_on_inp (Computer prog insptr relbase GetIn) inp =
-  (Computer new_prog (insptr + (get_num_of_params (Opcode 3)) + 1) relbase Run)
-  where instruction = prog M.! insptr
+act_on_inp comp inp = Computer { c_prog=new_prog
+                               , c_iptr=c_iptr comp +
+                                         get_num_of_params (Opcode 3) + 1
+                               , c_relbase=c_relbase comp
+                               , c_state=Run}
+  where instruction = c_prog comp M.! c_iptr comp
         opc = Opcode $ instruction `rem` 100
-        write_pos = get_write_pos instruction opc insptr relbase prog
-        new_prog = M.insert write_pos inp prog
+        write_pos = get_write_pos instruction opc (c_iptr comp) (c_relbase comp)
+          (c_prog comp)
+        new_prog = M.insert write_pos inp (c_prog comp)
 
 print_out :: Program -> Ptr -> RelativeBase -> IO ()
 print_out prog insptr relbase =
