@@ -210,10 +210,10 @@ print_out prog insptr relbase =
     print . head $ get_arg_list prog insptr relbase instruction
 
 -- use this function to debug
+-- TODO: control with a flag not commenting
 run :: Input -> Computer -> IO Computer
-run input comp =
-  run' input comp
-  -- run' input $ traceShow comp comp
+run input comp = run' input comp
+  -- run' input $ traceShow comp comp -- definition for debugging
 
 run' :: Input -> Computer -> IO Computer
 run' input (Computer prog insptr relbase Halt) = do
